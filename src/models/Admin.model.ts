@@ -16,36 +16,40 @@ export interface IAdmin extends Document {
     };
     isActive: boolean;
     lastLogin?: Date;
-    comparePassword?: (candidatePassword: string) => Promise<boolean>;
+    comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
-const adminSchema: Schema<IAdmin> = new mongoose.Schema({
-    fullName: { type: String, required: true },
-    email: { type: String, required: true, unique: true, lowercase: true },
-    password: { type: String, required: true, select: false },
-    phone: String,
-    profileImage: String,
-    role: { type: String, enum: ['super_admin', 'admin'], default: 'admin' },
-    storeInfo: {
-        name: String,
-        email: String,
+const adminSchema: Schema<IAdmin> = new Schema(
+    {
+        fullName: { type: String, required: true },
+        email: { type: String, required: true, unique: true, lowercase: true },
+        password: { type: String, required: true, select: false },
         phone: String,
-        address: String
+        profileImage: String,
+        role: { type: String, enum: ['super_admin', 'admin'], default: 'admin' },
+        storeInfo: {
+            name: String,
+            email: String,
+            phone: String,
+            address: String
+        },
+        isActive: { type: Boolean, default: true },
+        lastLogin: Date
     },
-    isActive: { type: Boolean, default: true },
-    lastLogin: Date
-}, { timestamps: true });
+    { timestamps: true }
+);
 
 // Hash password
 adminSchema.pre<IAdmin>('save', async function (next) {
-    if (!this.isModified('password')) return next();
+    if (!this.isModified('password') || !this.password) return next();
     this.password = await bcrypt.hash(this.password, 10);
     next();
 });
 
 // Compare password
-adminSchema.methods.comparePassword = async function (candidatePassword: string) {
-    return await bcrypt.compare(candidatePassword, this.password!);
+adminSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
+    if (!this.password) return false;
+    return bcrypt.compare(candidatePassword, this.password);
 };
 
 export default mongoose.model<IAdmin>('Admin', adminSchema);

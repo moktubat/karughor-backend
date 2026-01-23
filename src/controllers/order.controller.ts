@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import Order from '../models/Order.model.js';
 import Product from '../models/Product.model.js';
 import Settings from '../models/Settings.model.js';
@@ -11,9 +12,10 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         const { customer, items, notes } = req.body;
 
         const settings = await Settings.findOne();
-        const deliveryCharge = customer.address.deliveryLocation === 'inside_dhaka'
-            ? settings?.insideDhakaCharge
-            : settings?.outsideDhakaCharge;
+        const deliveryCharge =
+            customer.address.deliveryLocation === 'inside_dhaka'
+                ? settings?.insideDhakaCharge
+                : settings?.outsideDhakaCharge;
 
         let subtotal = 0;
         const orderItems: any[] = [];
@@ -48,7 +50,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
         const order = await Order.create({
             customer: {
-                userId: (req as any).user?._id,
+                userId: (req as any).user?._id || null,
                 ...customer
             },
             items: orderItems,
@@ -77,6 +79,7 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
 
         if (!order) throw new ApiError(404, 'Order not found');
 
+        // Check if user is authorized
         if ((req as any).user && order.customer.userId?.toString() !== (req as any).user._id.toString()) {
             throw new ApiError(403, 'Not authorized to view this order');
         }
@@ -92,20 +95,21 @@ export const getUserOrders = async (req: Request, res: Response, next: NextFunct
     try {
         const { page = 1, limit = 10 } = req.query as any;
 
-        const orders = await Order.find({ 'customer.userId': (req as any).user._id })
+        const userId = (req as any).user._id;
+        const orders = await Order.find({ 'customer.userId': userId })
             .sort({ createdAt: -1 })
-            .limit(limit * 1)
-            .skip((page - 1) * limit);
+            .limit(Number(limit))
+            .skip((Number(page) - 1) * Number(limit));
 
-        const total = await Order.countDocuments({ 'customer.userId': (req as any).user._id });
+        const total = await Order.countDocuments({ 'customer.userId': userId });
 
         successResponse(res, {
             orders,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page: Number(page),
+                limit: Number(limit),
                 total,
-                pages: Math.ceil(total / limit)
+                pages: Math.ceil(total / Number(limit))
             }
         });
     } catch (error) {
@@ -130,18 +134,18 @@ export const getAllOrders = async (req: Request, res: Response, next: NextFuncti
 
         const orders = await Order.find(query)
             .sort({ createdAt: -1 })
-            .limit(limit * 1)
-            .skip((page - 1) * limit);
+            .limit(Number(limit))
+            .skip((Number(page) - 1) * Number(limit));
 
         const total = await Order.countDocuments(query);
 
         successResponse(res, {
             orders,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page: Number(page),
+                limit: Number(limit),
                 total,
-                pages: Math.ceil(total / limit)
+                pages: Math.ceil(total / Number(limit))
             }
         });
     } catch (error) {
@@ -157,16 +161,16 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
         if (!order) throw new ApiError(404, 'Order not found');
 
         order.status = status;
+
+        // Ensure statusHistory exists
+        if (!order.statusHistory) order.statusHistory = [];
         order.statusHistory.push({ status, timestamp: new Date(), note });
 
-        if (status === 'delivered') {
-            order.paymentStatus = 'collected';
-            order.deliveredAt = new Date();
-        } else if (status === 'confirmed') {
-            order.confirmedAt = new Date();
-        } else if (status === 'shipped') {
-            order.shippedAt = new Date();
-        } else if (status === 'cancelled') {
+        // Update timestamps
+        if (status === 'delivered') order.deliveredAt = new Date(), order.paymentStatus = 'collected';
+        else if (status === 'confirmed') order.confirmedAt = new Date();
+        else if (status === 'shipped') order.shippedAt = new Date();
+        else if (status === 'cancelled') {
             order.cancelledAt = new Date();
 
             for (const item of order.items) {

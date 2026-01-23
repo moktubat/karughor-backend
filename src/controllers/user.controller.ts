@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import User from '../models/User.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { successResponse } from '../utils/ApiResponse.js';
@@ -7,6 +8,8 @@ import { successResponse } from '../utils/ApiResponse.js';
 export const getProfile = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = await User.findById((req as any).user._id).select('-password');
+        if (!user) throw new ApiError(404, 'User not found');
+
         successResponse(res, { user });
     } catch (error) {
         next(error);
@@ -24,6 +27,8 @@ export const updateProfile = async (req: Request, res: Response, next: NextFunct
             { new: true, runValidators: true }
         ).select('-password');
 
+        if (!user) throw new ApiError(404, 'User not found');
+
         successResponse(res, { user }, 'Profile updated successfully');
     } catch (error) {
         next(error);
@@ -34,6 +39,8 @@ export const updateProfile = async (req: Request, res: Response, next: NextFunct
 export const getWishlist = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = await User.findById((req as any).user._id).populate('wishlist');
+        if (!user) throw new ApiError(404, 'User not found');
+
         successResponse(res, { wishlist: user.wishlist });
     } catch (error) {
         next(error);
@@ -46,12 +53,14 @@ export const addToWishlist = async (req: Request, res: Response, next: NextFunct
         const { productId } = req.params;
 
         const user = await User.findById((req as any).user._id);
+        if (!user) throw new ApiError(404, 'User not found');
 
-        if (user.wishlist.includes(productId)) {
+        // Check if product already in wishlist
+        if (user.wishlist.some(id => id.toString() === productId)) {
             throw new ApiError(400, 'Product already in wishlist');
         }
 
-        user.wishlist.push(productId);
+        user.wishlist.push(new mongoose.Types.ObjectId(productId));
         await user.save();
 
         successResponse(res, { wishlist: user.wishlist }, 'Added to wishlist');
@@ -65,11 +74,11 @@ export const removeFromWishlist = async (req: Request, res: Response, next: Next
     try {
         const { productId } = req.params;
 
-        const user = await User.findByIdAndUpdate(
-            (req as any).user._id,
-            { $pull: { wishlist: productId } },
-            { new: true }
-        );
+        const user = await User.findById((req as any).user._id);
+        if (!user) throw new ApiError(404, 'User not found');
+
+        user.wishlist = user.wishlist.filter(id => id.toString() !== productId);
+        await user.save();
 
         successResponse(res, { wishlist: user.wishlist }, 'Removed from wishlist');
     } catch (error) {

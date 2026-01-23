@@ -1,4 +1,4 @@
-import mongoose, { Document, Schema, Model } from 'mongoose';
+import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
@@ -16,25 +16,28 @@ export interface IUser extends Document {
     isGuest: boolean;
     wishlist: mongoose.Types.ObjectId[];
     isActive: boolean;
-    comparePassword?: (candidatePassword: string) => Promise<boolean>;
+    comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
-const userSchema: Schema<IUser> = new mongoose.Schema({
-    fullName: { type: String, required: [true, 'Full name is required'], trim: true },
-    phone: { type: String, required: [true, 'Phone number is required'], unique: true, trim: true },
-    email: { type: String, trim: true, lowercase: true, sparse: true },
-    password: { type: String, select: false },
-    profileImage: String,
-    address: {
-        street: String,
-        area: String,
-        city: String,
-        deliveryLocation: { type: String, enum: ['inside_dhaka', 'outside_dhaka'] }
+const userSchema: Schema<IUser> = new Schema(
+    {
+        fullName: { type: String, required: [true, 'Full name is required'], trim: true },
+        phone: { type: String, required: [true, 'Phone number is required'], unique: true, trim: true },
+        email: { type: String, trim: true, lowercase: true, sparse: true },
+        password: { type: String, select: false },
+        profileImage: String,
+        address: {
+            street: String,
+            area: String,
+            city: String,
+            deliveryLocation: { type: String, enum: ['inside_dhaka', 'outside_dhaka'] }
+        },
+        isGuest: { type: Boolean, default: false },
+        wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+        isActive: { type: Boolean, default: true }
     },
-    isGuest: { type: Boolean, default: false },
-    wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
-    isActive: { type: Boolean, default: true }
-}, { timestamps: true });
+    { timestamps: true }
+);
 
 // Hash password before saving
 userSchema.pre<IUser>('save', async function (next) {
@@ -44,8 +47,9 @@ userSchema.pre<IUser>('save', async function (next) {
 });
 
 // Compare password
-userSchema.methods.comparePassword = async function (candidatePassword: string) {
-    return await bcrypt.compare(candidatePassword, this.password!);
+userSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
+    if (!this.password) return false;
+    return bcrypt.compare(candidatePassword, this.password);
 };
 
 export default mongoose.model<IUser>('User', userSchema);
