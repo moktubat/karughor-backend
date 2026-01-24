@@ -6,6 +6,20 @@ import { generateToken } from '../config/jwt.js';
 import { ApiError } from '../utils/ApiError.js';
 import { successResponse } from '../utils/ApiResponse.js';
 
+// Cookie options based on environment
+const getCookieOptions = () => {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    return {
+        httpOnly: true,
+        secure: isProduction, // true in production
+        sameSite: isProduction ? 'none' as const : 'strict' as const,
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+        path: '/',
+        ...(isProduction && { domain: '.vercel.app' }) // Allow subdomain access
+    };
+};
+
 // --------------------- USER --------------------- //
 
 // User Registration
@@ -20,12 +34,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
         const token = generateToken({ userId: user._id.toString(), phone: user.phone });
 
-        res.cookie('user_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 30 * 24 * 60 * 60 * 1000
-        });
+        res.cookie('user_token', token, getCookieOptions());
 
         successResponse(res, {
             user: { id: user._id, fullName: user.fullName, phone: user.phone, email: user.email },
@@ -50,12 +59,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
         const token = generateToken({ userId: user._id.toString(), phone: user.phone });
 
-        res.cookie('user_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 30 * 24 * 60 * 60 * 1000
-        });
+        res.cookie('user_token', token, getCookieOptions());
 
         successResponse(res, {
             user: { id: user._id, fullName: user.fullName, phone: user.phone, email: user.email },
@@ -84,12 +88,7 @@ export const adminLogin = async (req: Request, res: Response, next: NextFunction
 
         const token = generateToken({ adminId: admin._id.toString(), email: admin.email, role: admin.role });
 
-        res.cookie('admin_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 30 * 24 * 60 * 60 * 1000
-        });
+        res.cookie('admin_token', token, getCookieOptions());
 
         successResponse(res, {
             admin: { id: admin._id, fullName: admin.fullName, email: admin.email, role: admin.role },
@@ -103,11 +102,17 @@ export const adminLogin = async (req: Request, res: Response, next: NextFunction
 // --------------------- LOGOUT --------------------- //
 
 export const logout = (req: Request, res: Response) => {
-    res.clearCookie('user_token');
+    res.clearCookie('user_token', {
+        ...getCookieOptions(),
+        maxAge: 0
+    });
     successResponse(res, null, 'Logged out successfully');
 };
 
 export const adminLogout = (req: Request, res: Response) => {
-    res.clearCookie('admin_token');
+    res.clearCookie('admin_token', {
+        ...getCookieOptions(),
+        maxAge: 0
+    });
     successResponse(res, null, 'Admin logged out successfully');
 };

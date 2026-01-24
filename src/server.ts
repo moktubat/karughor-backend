@@ -14,13 +14,37 @@ const PORT: number | string = process.env.PORT || 5000;
 // Connect to MongoDB
 connectDB();
 
+// CORS Configuration - UPDATED FOR PRODUCTION
+const corsOptions = {
+    origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) return callback(null, true);
+
+        const allowedOrigins = [
+            process.env.FRONTEND_URL || 'http://localhost:3000',
+            'http://localhost:3000',
+            'https://karughor.vercel.app'
+        ];
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('Origin not allowed by CORS:', origin);
+            callback(null, false);
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    exposedHeaders: ['set-cookie']
+};
+
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
+
 // Middleware
-app.use(
-    cors({
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-        credentials: true,
-    })
-);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -34,11 +58,21 @@ app.get('/health', (req: Request, res: Response) => {
         status: 'OK',
         message: 'Server is running',
         env: process.env.NODE_ENV,
+        timestamp: new Date().toISOString()
     });
 });
 
 // API Routes
 app.use('/api', routes);
+
+// 404 handler
+app.use((req: Request, res: Response) => {
+    res.status(404).json({
+        success: false,
+        message: 'Route not found',
+        path: req.path
+    });
+});
 
 // Error handler (must be last)
 app.use(errorHandler);
@@ -46,5 +80,6 @@ app.use(errorHandler);
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📝 Environment: ${process.env.NODE_ENV}`);
+    console.log(`🔐 Environment: ${process.env.NODE_ENV}`);
+    console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`);
 });
