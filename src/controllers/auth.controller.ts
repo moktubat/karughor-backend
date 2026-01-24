@@ -12,11 +12,11 @@ const getCookieOptions = () => {
 
     const options = {
         httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? 'none' as const : 'lax' as const, // Changed from 'strict'
+        secure: true, // ALWAYS true in production
+        sameSite: 'none' as const, // MUST be 'none' for cross-origin
         maxAge: 30 * 24 * 60 * 60 * 1000,
         path: '/',
-        // REMOVED: domain option - let browser handle it
+        // NO DOMAIN - let the browser handle it
     };
 
     console.log('📦 [Backend] Cookie options:', options);

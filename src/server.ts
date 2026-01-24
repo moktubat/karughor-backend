@@ -25,40 +25,33 @@ connectDB();
 const corsOptions = {
     origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
         console.log('🔵 [CORS] Request from origin:', origin);
-        
-        // Allow requests with no origin (mobile apps, Postman, etc.)
-        if (!origin) {
-            console.log('✅ [CORS] No origin header - allowing');
-            return callback(null, true);
-        }
-        
+
         const allowedOrigins = [
-            process.env.FRONTEND_URL || 'http://localhost:3000',
             'http://localhost:3000',
             'https://karughor.vercel.app'
         ];
-        
-        console.log('🔵 [CORS] Allowed origins:', allowedOrigins);
-        
-        if (allowedOrigins.indexOf(origin) !== -1) {
+
+        // Allow requests with no origin (mobile apps, Postman, server-to-server)
+        if (!origin) {
+            console.log('✅ [CORS] No origin - allowing');
+            return callback(null, true);
+        }
+
+        if (allowedOrigins.includes(origin)) {
             console.log('✅ [CORS] Origin allowed:', origin);
             callback(null, true);
         } else {
             console.log('❌ [CORS] Origin not allowed:', origin);
-            callback(null, false);
+            callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     exposedHeaders: ['set-cookie']
 };
 
-console.log('🔵 [Server] CORS options configured');
-
 app.use(cors(corsOptions));
-
-// Handle preflight requests
 app.options('*', cors(corsOptions));
 
 // Middleware

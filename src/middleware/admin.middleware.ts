@@ -9,7 +9,13 @@ interface AdminRequest extends Request {
 
 export const authenticateAdmin = async (req: AdminRequest, res: Response, next: NextFunction) => {
     try {
-        const token = req.cookies.admin_token || req.headers.authorization?.replace('Bearer ', '');
+        // Try cookie first, then Authorization header
+        let token = req.cookies.admin_token;
+
+        if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+            token = req.headers.authorization.replace('Bearer ', '');
+        }
+
         if (!token) throw new ApiError(401, 'Admin authentication required');
 
         const decoded: any = verifyToken(token);
