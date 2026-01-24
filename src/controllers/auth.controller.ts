@@ -10,24 +10,19 @@ import { successResponse } from '../utils/ApiResponse.js';
 const getCookieOptions = () => {
     const isProduction = process.env.NODE_ENV === 'production';
 
-    console.log('🔵 [Backend] Cookie options:', {
-        isProduction,
-        NODE_ENV: process.env.NODE_ENV,
-        FRONTEND_URL: process.env.FRONTEND_URL
-    });
-
     const options = {
         httpOnly: true,
         secure: isProduction,
-        sameSite: isProduction ? 'none' as const : 'strict' as const,
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+        sameSite: isProduction ? 'none' as const : 'lax' as const, // Changed from 'strict'
+        maxAge: 30 * 24 * 60 * 60 * 1000,
         path: '/',
-        ...(isProduction && { domain: '.vercel.app' })
+        // REMOVED: domain option - let browser handle it
     };
 
     console.log('📦 [Backend] Cookie options:', options);
     return options;
 };
+
 
 // --------------------- USER --------------------- //
 
