@@ -5,11 +5,14 @@ export const createProductSchema = z.object({
     description: z.string().min(1, 'Description is required'),
     category: z.string().min(1, 'Category is required'),
     brand: z.string().optional(),
-    price: z.number().min(0, 'Price must be positive'),
-    originalPrice: z.number().optional(),
-    stock: z.number().min(0, 'Stock cannot be negative'),
-    lowStockThreshold: z.number().default(10),
-    isActive: z.boolean().default(true),
+    price: z.coerce.number().min(0, 'Price must be positive'),
+    originalPrice: z.coerce.number().optional(),
+    stock: z.coerce.number().min(0, 'Stock cannot be negative'),
+    lowStockThreshold: z.coerce.number().default(10),
+    isActive: z.preprocess(
+        (val) => val === 'true' || val === true,
+        z.boolean()
+    ).default(true),
     specifications: z.record(z.string()).optional(),
     inTheBox: z.array(z.string()).optional(),
     systemRequirements: z.array(z.string()).optional()
