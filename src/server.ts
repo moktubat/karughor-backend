@@ -72,8 +72,6 @@ app.use((req: Request, res: Response, next) => {
     next();
 });
 
-// Serve uploaded files
-app.use('/uploads', express.static('uploads'));
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {

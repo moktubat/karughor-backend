@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import User, { IUser } from '../models/User.model.js';
 import Admin, { IAdmin } from '../models/Admin.model.js';
 import { generateToken } from '../config/jwt.js';
@@ -129,6 +130,91 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
         next(error);
     }
 };
+
+// ─────────────────────────────────────────────────────────────
+// 🔐 FORGOT PASSWORD
+// POST /api/auth/forgot-password
+// Body: { phone: string }
+// ─────────────────────────────────────────────────────────────
+export const forgotPassword = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { phone } = req.body;
+
+        if (!phone) {
+            return next(new ApiError(400, 'Phone number is required'));
+        }
+
+        const user = await User.findOne({ phone }).select('+resetOTP +resetOTPExpiry');
+
+        // Always return success (prevent user enumeration)
+        if (!user) {
+            return successResponse(res, null, 'If this phone is registered, an OTP will be sent.');
+        }
+
+        // Generate secure 6-digit OTP
+        const otp = crypto.randomInt(100000, 999999).toString();
+        const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+        user.resetOTP = otp;
+        user.resetOTPExpiry = expiry;
+
+        await user.save({ validateBeforeSave: false });
+
+        // TODO: Integrate SMS Provider (SSL Wireless / Twilio / Infobip etc.)
+        console.log(`🔑 Password reset OTP for ${phone}: ${otp}`);
+
+        return successResponse(res, null, 'OTP sent to your phone number.');
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────
+// 🔐 RESET PASSWORD
+// POST /api/auth/reset-password
+// Body: { phone: string, otp: string, newPassword: string }
+// ─────────────────────────────────────────────────────────────
+export const resetPassword = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { phone, otp, newPassword } = req.body;
+
+        if (!phone || !otp || !newPassword) {
+            return next(new ApiError(400, 'Phone, OTP, and new password are required'));
+        }
+
+        if (newPassword.length < 6) {
+            return next(new ApiError(400, 'Password must be at least 6 characters'));
+        }
+
+        const user = await User.findOne({ phone }).select('+resetOTP +resetOTPExpiry +password');
+
+        if (!user) {
+            return next(new ApiError(400, 'Invalid OTP or phone number'));
+        }
+
+        if (!user.resetOTP || user.resetOTP !== otp) {
+            return next(new ApiError(400, 'Invalid OTP'));
+        }
+
+        if (!user.resetOTPExpiry || user.resetOTPExpiry < new Date()) {
+            return next(new ApiError(400, 'OTP has expired. Please request a new one.'));
+        }
+
+        // Update password (will auto-hash if you use pre-save middleware)
+        user.password = newPassword;
+
+        // Clear OTP fields
+        user.resetOTP = undefined;
+        user.resetOTPExpiry = undefined;
+
+        await user.save();
+
+        return successResponse(res, null, 'Password reset successfully. You can now log in.');
+    } catch (err) {
+        next(err);
+    }
+};
+
 
 // --------------------- ADMIN --------------------- //
 

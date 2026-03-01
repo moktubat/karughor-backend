@@ -16,6 +16,8 @@ export interface IUser extends Document {
     isGuest: boolean;
     wishlist: mongoose.Types.ObjectId[];
     isActive: boolean;
+    resetOTP?: string;
+    resetOTPExpiry?: Date;
     comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -34,7 +36,9 @@ const userSchema: Schema<IUser> = new Schema(
         },
         isGuest: { type: Boolean, default: false },
         wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
-        isActive: { type: Boolean, default: true }
+        isActive: { type: Boolean, default: true },
+        resetOTP: { type: String, select: false },
+        resetOTPExpiry: { type: Date, select: false }
     },
     { timestamps: true }
 );

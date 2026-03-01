@@ -35,6 +35,55 @@ export const updateProfile = async (req: Request, res: Response, next: NextFunct
     }
 };
 
+// ─────────────────────────────────────────────────────────────
+// 🔐 CHANGE PASSWORD
+// PUT /api/users/change-password
+// Body: { currentPassword: string, newPassword: string }
+// Requires: authenticate middleware
+// ─────────────────────────────────────────────────────────────
+export const changePassword = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return next(new ApiError(400, 'Current password and new password are required'));
+        }
+
+        if (newPassword.length < 6) {
+            return next(new ApiError(400, 'New password must be at least 6 characters'));
+        }
+
+        // Prevent using same password again
+        if (currentPassword === newPassword) {
+            return next(new ApiError(400, 'New password must be different from current password'));
+        }
+
+        const user = await User.findById((req as any).user._id).select('+password');
+
+        if (!user) {
+            return next(new ApiError(404, 'User not found'));
+        }
+
+        if (!user.password) {
+            return next(new ApiError(400, 'No password set for this account'));
+        }
+
+        const isMatch = await user.comparePassword(currentPassword);
+
+        if (!isMatch) {
+            return next(new ApiError(400, 'Current password is incorrect'));
+        }
+
+        // Update password (auto-hashed via pre-save middleware)
+        user.password = newPassword;
+        await user.save();
+
+        return successResponse(res, null, 'Password changed successfully');
+    } catch (err) {
+        next(err);
+    }
+};
+
 // Get wishlist
 export const getWishlist = async (req: Request, res: Response, next: NextFunction) => {
     try {

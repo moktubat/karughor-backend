@@ -1,39 +1,26 @@
 import multer from 'multer';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import cloudinary from './cloudinary.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const storage = new CloudinaryStorage({
+    cloudinary,
+    params: async (req: any, file: Express.Multer.File) => {
+        const folder = req.baseUrl.includes('product')
+            ? 'karughor/products'
+            : 'karughor/profiles';
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Storage configuration
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const folder = req.baseUrl.includes('product') ? 'products' : 'profiles';
-        const dir = path.join(uploadsDir, folder);
-
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-
-        cb(null, dir);
+        return {
+            folder,
+            allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+            transformation: [{ width: 800, quality: 'auto', fetch_format: 'auto' }],
+            public_id: `${file.fieldname}-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+        };
     },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-    }
 });
 
-// File filter
 const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const allowedTypes = /jpeg|jpg|png|gif|webp/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const extname = allowedTypes.test(file.originalname.toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
 
     if (mimetype && extname) {
@@ -45,6 +32,6 @@ const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.
 
 export const upload = multer({
     storage,
-    limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE!) || 5242880 }, // 5MB
-    fileFilter
+    limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE!) || 5242880 },
+    fileFilter,
 });
