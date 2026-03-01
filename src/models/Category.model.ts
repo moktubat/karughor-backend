@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface ISubCategory {
+    _id?: Types.ObjectId;   // ← added: mongoose auto-generates this for subdocuments
     name: string;
     slug: string;
     isActive: boolean;
