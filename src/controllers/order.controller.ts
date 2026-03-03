@@ -48,7 +48,11 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
         const total = subtotal + (deliveryCharge || 0);
 
+        const count = await Order.countDocuments();
+        const orderNumber = `ORD-${String(count + 1).padStart(4, '0')}`;
+
         const order = await Order.create({
+            orderNumber,
             customer: {
                 userId: (req as any).user?._id || null,
                 ...customer
@@ -64,6 +68,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
                 timestamp: new Date()
             }]
         });
+
 
         successResponse(res, { order }, 'Order placed successfully', 201);
     } catch (error) {
