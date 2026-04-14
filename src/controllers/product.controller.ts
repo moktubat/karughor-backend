@@ -19,14 +19,38 @@ export const getAllProducts = async (req: Request, res: Response, next: NextFunc
         const skip = (page - 1) * limit;
 
         const filter: any = {};
-        if (req.query.category) filter.category = req.query.category;
-        if (req.query.search) filter.name = { $regex: req.query.search, $options: 'i' };
+
+        // Category filter:
+        // The frontend sends the slug (e.g. "wall-art") but products are stored
+        // with the human-readable category name (e.g. "Wall Art").
+        // We build a regex that matches both formats, case-insensitively.
+        if (req.query.category) {
+            const slug = req.query.category as string;                  // "wall-art"
+            const readable = slug.replace(/-/g, ' ');                   // "wall art"
+            // Escape special regex chars in both variants
+            const escSlug = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const escReadable = readable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            filter.category = { $regex: new RegExp(`^(${escSlug}|${escReadable})$`, 'i') };
+        }
+
+        if (req.query.search) {
+            filter.name = { $regex: req.query.search, $options: 'i' };
+        }
 
         // Non-admin: only show active products
         if (!req.query.admin) filter.isActive = true;
 
+        // Support sort param: "-createdAt" / "price" / "-price"
+        let sort: any = { createdAt: -1 };
+        if (req.query.sort) {
+            const sortParam = req.query.sort as string;
+            if (sortParam === 'price') sort = { price: 1 };
+            else if (sortParam === '-price') sort = { price: -1 };
+            else if (sortParam === '-createdAt') sort = { createdAt: -1 };
+        }
+
         const [products, total] = await Promise.all([
-            Product.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+            Product.find(filter).sort(sort).skip(skip).limit(limit),
             Product.countDocuments(filter),
         ]);
 
@@ -87,7 +111,6 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         const newImages = extractUploadedUrls(req.files as Express.Multer.File[]);
 
         // Keep existing images that weren't removed in the frontend
-        // Frontend sends retained URLs as repeated `existingImages` fields
         const existingImages: string[] = req.body.existingImages
             ? Array.isArray(req.body.existingImages)
                 ? req.body.existingImages
@@ -98,7 +121,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
 
         const updateData: any = {
             ...req.body,
-            images: images.length > 0 ? images : product.images, // fall back to old
+            images: images.length > 0 ? images : product.images,
         };
 
         // Cast numbers
@@ -107,7 +130,6 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
             updateData.originalPrice = req.body.originalPrice ? Number(req.body.originalPrice) : undefined;
         if (req.body.stock !== undefined) updateData.stock = Number(req.body.stock);
 
-        // Remove the raw field so it doesn't overwrite the merged array
         delete updateData.existingImages;
 
         const updated = await Product.findByIdAndUpdate(
