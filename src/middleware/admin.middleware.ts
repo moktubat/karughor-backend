@@ -7,13 +7,22 @@ interface AdminRequest extends Request {
     admin?: IAdmin;
 }
 
-export const authenticateAdmin = async (req: AdminRequest, res: Response, next: NextFunction) => {
+export const authenticateAdmin = async (
+    req: AdminRequest,
+    res: Response,
+    next: NextFunction
+) => {
     try {
-        // Try cookie first, then Authorization header
-        let token = req.cookies.admin_token;
+        let token: string | undefined;
 
-        if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+        // ✅ PRIORITY 1: Authorization header
+        if (req.headers.authorization?.startsWith('Bearer ')) {
             token = req.headers.authorization.replace('Bearer ', '');
+        }
+
+        // ✅ PRIORITY 2: Cookie fallback
+        if (!token && req.cookies.admin_token) {
+            token = req.cookies.admin_token;
         }
 
         if (!token) throw new ApiError(401, 'Admin authentication required');
@@ -21,7 +30,9 @@ export const authenticateAdmin = async (req: AdminRequest, res: Response, next: 
         const decoded: any = verifyToken(token);
         const admin = await Admin.findById(decoded.adminId);
 
-        if (!admin || !admin.isActive) throw new ApiError(401, 'Admin not found or inactive');
+        if (!admin || !admin.isActive) {
+            throw new ApiError(401, 'Admin not found or inactive');
+        }
 
         req.admin = admin;
         next();
