@@ -178,7 +178,7 @@ export const adminLogin = async (req: Request, res: Response, next: NextFunction
     try {
         const { email, password } = req.body;
 
-        const admin: IAdmin | null = await Admin.findOne({ email }).select('+password');
+        const admin = await Admin.findOne({ email }).select('+password');
         if (!admin || !admin.password) throw new ApiError(401, 'Invalid credentials');
 
         const isMatch = await admin.comparePassword(password);
@@ -193,11 +193,18 @@ export const adminLogin = async (req: Request, res: Response, next: NextFunction
             role: admin.role,
         });
 
+        // ✅ keep cookie (for API)
         res.cookie('admin_token', token, getCookieOptions());
 
+        // ✅ ALSO send token in response
         successResponse(res, {
-            admin: { id: admin._id, fullName: admin.fullName, email: admin.email, role: admin.role },
-            token,
+            admin: {
+                id: admin._id,
+                fullName: admin.fullName,
+                email: admin.email,
+                role: admin.role
+            },
+            token // 🔥 IMPORTANT
         }, 'Admin login successful');
     } catch (error) {
         next(error);
