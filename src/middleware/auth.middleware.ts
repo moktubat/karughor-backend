@@ -9,7 +9,6 @@ interface AuthRequest extends Request {
 
 export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        // Try cookie first, then Authorization header
         let token = req.cookies.user_token;
 
         if (!token && req.headers.authorization?.startsWith('Bearer ')) {

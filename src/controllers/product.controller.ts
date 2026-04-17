@@ -3,31 +3,21 @@ import Product from '../models/Product.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { successResponse } from '../utils/ApiResponse.js';
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-/** Extract Cloudinary URLs from multer-storage-cloudinary files */
 function extractUploadedUrls(files: Express.Multer.File[] | undefined): string[] {
     if (!files || files.length === 0) return [];
-    // multer-storage-cloudinary attaches the secure URL as `path`
     return files.map((f: any) => f.path || f.secure_url);
 }
 
-// ── GET all products ──────────────────────────────────────────────────────────
 export const getAllProducts = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const page = parseInt(req.query.page as string) || 1;
         const limit = parseInt(req.query.limit as string) || 12;
         const skip = (page - 1) * limit;
-
         const filter: any = {};
 
-        // Category filter:
-        // The frontend sends the slug (e.g. "wall-art") but products are stored
-        // with the human-readable category name (e.g. "Wall Art").
-        // We build a regex that matches both formats, case-insensitively.
         if (req.query.category) {
-            const slug = req.query.category as string;                  // "wall-art"
-            const readable = slug.replace(/-/g, ' ');                   // "wall art"
-            // Escape special regex chars in both variants
+            const slug = req.query.category as string;
+            const readable = slug.replace(/-/g, ' ');
             const escSlug = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const escReadable = readable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             filter.category = { $regex: new RegExp(`^(${escSlug}|${escReadable})$`, 'i') };
@@ -37,17 +27,11 @@ export const getAllProducts = async (req: Request, res: Response, next: NextFunc
             filter.name = { $regex: req.query.search, $options: 'i' };
         }
 
-        // Non-admin: only show active products
         if (!req.query.admin) filter.isActive = true;
 
-        // Support sort param: "-createdAt" / "price" / "-price"
         let sort: any = { createdAt: -1 };
-        if (req.query.sort) {
-            const sortParam = req.query.sort as string;
-            if (sortParam === 'price') sort = { price: 1 };
-            else if (sortParam === '-price') sort = { price: -1 };
-            else if (sortParam === '-createdAt') sort = { createdAt: -1 };
-        }
+        if (req.query.sort === 'price') sort = { price: 1 };
+        else if (req.query.sort === '-price') sort = { price: -1 };
 
         const [products, total] = await Promise.all([
             Product.find(filter).sort(sort).skip(skip).limit(limit),
@@ -66,7 +50,6 @@ export const getAllProducts = async (req: Request, res: Response, next: NextFunc
     }
 };
 
-// ── GET single product ────────────────────────────────────────────────────────
 export const getProductById = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const product = await Product.findById(req.params.id);
@@ -77,12 +60,9 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
     }
 };
 
-// ── CREATE product (Admin) ────────────────────────────────────────────────────
 export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        // Images come from multer-storage-cloudinary via req.files
         const uploadedImages = extractUploadedUrls(req.files as Express.Multer.File[]);
-
         if (uploadedImages.length === 0) {
             throw new ApiError(400, 'At least one product image is required');
         }
@@ -101,16 +81,12 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
     }
 };
 
-// ── UPDATE product (Admin) ────────────────────────────────────────────────────
 export const updateProduct = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const product = await Product.findById(req.params.id);
         if (!product) throw new ApiError(404, 'Product not found');
 
-        // New files uploaded this request
         const newImages = extractUploadedUrls(req.files as Express.Multer.File[]);
-
-        // Keep existing images that weren't removed in the frontend
         const existingImages: string[] = req.body.existingImages
             ? Array.isArray(req.body.existingImages)
                 ? req.body.existingImages
@@ -118,33 +94,25 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
             : [];
 
         const images = [...existingImages, ...newImages];
-
         const updateData: any = {
             ...req.body,
             images: images.length > 0 ? images : product.images,
         };
 
-        // Cast numbers
         if (req.body.price !== undefined) updateData.price = Number(req.body.price);
-        if (req.body.originalPrice !== undefined)
+        if (req.body.originalPrice !== undefined) {
             updateData.originalPrice = req.body.originalPrice ? Number(req.body.originalPrice) : undefined;
+        }
         if (req.body.stock !== undefined) updateData.stock = Number(req.body.stock);
-
         delete updateData.existingImages;
 
-        const updated = await Product.findByIdAndUpdate(
-            req.params.id,
-            updateData,
-            { new: true, runValidators: true }
-        );
-
+        const updated = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
         successResponse(res, { product: updated }, 'Product updated successfully');
     } catch (error) {
         next(error);
     }
 };
 
-// ── DELETE product (Admin) ────────────────────────────────────────────────────
 export const deleteProduct = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const product = await Product.findByIdAndDelete(req.params.id);
@@ -155,7 +123,6 @@ export const deleteProduct = async (req: Request, res: Response, next: NextFunct
     }
 };
 
-// ── TOGGLE status (Admin) ─────────────────────────────────────────────────────
 export const toggleProductStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const product = await Product.findById(req.params.id);
@@ -168,14 +135,12 @@ export const toggleProductStatus = async (req: Request, res: Response, next: Nex
     }
 };
 
-// ── LOW STOCK (Admin) ─────────────────────────────────────────────────────────
 export const getLowStockProducts = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const products = await Product.find({
             $expr: { $lte: ['$stock', '$lowStockThreshold'] },
             stock: { $gt: 0 },
         }).sort({ stock: 1 });
-
         successResponse(res, { products });
     } catch (error) {
         next(error);

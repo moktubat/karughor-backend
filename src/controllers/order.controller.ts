@@ -7,9 +7,6 @@ import { successResponse } from '../utils/ApiResponse.js';
 import { sendMail } from '../config/email.js';
 import { orderConfirmationTemplate } from '../utils/emailTemplates.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CREATE ORDER — sends confirmation email automatically
-// ─────────────────────────────────────────────────────────────────────────────
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { customer, items, notes } = req.body;
@@ -32,7 +29,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
             const itemSubtotal = product.price * item.quantity;
             subtotal += itemSubtotal;
-
             orderItems.push({
                 productId: product._id,
                 productName: product.name,
@@ -52,10 +48,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
         const order = await Order.create({
             orderNumber,
-            customer: {
-                userId: (req as any).user?._id || null,
-                ...customer,
-            },
+            customer: { userId: (req as any).user?._id || null, ...customer },
             items: orderItems,
             subtotal,
             deliveryCharge,
@@ -65,11 +58,9 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
             statusHistory: [{ status: 'new', timestamp: new Date() }],
         });
 
-        // ── Send order confirmation email (non-blocking) ─────────────────────
-        const customerEmail = customer.email;
-        if (customerEmail) {
+        if (customer.email) {
             sendMail({
-                to: customerEmail,
+                to: customer.email,
                 subject: `✅ Order Confirmed — ${orderNumber} | Karughor`,
                 html: orderConfirmationTemplate({
                     customerName: customer.name,
@@ -100,11 +91,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// All other order functions remain unchanged from your original file
-// (copy-paste the rest of your order.controller.ts below this line)
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const getOrderById = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const order = await Order.findById(req.params.id).populate('items.productId', 'name images');
@@ -122,11 +108,13 @@ export const getUserOrders = async (req: Request, res: Response, next: NextFunct
     try {
         const { page = 1, limit = 10 } = req.query as any;
         const userId = (req as any).user._id;
-        const orders = await Order.find({ 'customer.userId': userId })
-            .sort({ createdAt: -1 })
-            .limit(Number(limit))
-            .skip((Number(page) - 1) * Number(limit));
-        const total = await Order.countDocuments({ 'customer.userId': userId });
+        const [orders, total] = await Promise.all([
+            Order.find({ 'customer.userId': userId })
+                .sort({ createdAt: -1 })
+                .limit(Number(limit))
+                .skip((Number(page) - 1) * Number(limit)),
+            Order.countDocuments({ 'customer.userId': userId }),
+        ]);
         successResponse(res, {
             orders,
             pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
@@ -148,11 +136,13 @@ export const getAllOrders = async (req: Request, res: Response, next: NextFuncti
                 { 'customer.phone': { $regex: search, $options: 'i' } },
             ];
         }
-        const orders = await Order.find(query)
-            .sort({ createdAt: -1 })
-            .limit(Number(limit))
-            .skip((Number(page) - 1) * Number(limit));
-        const total = await Order.countDocuments(query);
+        const [orders, total] = await Promise.all([
+            Order.find(query)
+                .sort({ createdAt: -1 })
+                .limit(Number(limit))
+                .skip((Number(page) - 1) * Number(limit)),
+            Order.countDocuments(query),
+        ]);
         successResponse(res, {
             orders,
             pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
@@ -172,10 +162,14 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
         if (!order.statusHistory) order.statusHistory = [];
         order.statusHistory.push({ status, timestamp: new Date(), note });
 
-        if (status === 'delivered') { order.deliveredAt = new Date(); order.paymentStatus = 'collected'; }
-        else if (status === 'confirmed') order.confirmedAt = new Date();
-        else if (status === 'shipped') order.shippedAt = new Date();
-        else if (status === 'cancelled') {
+        if (status === 'delivered') {
+            order.deliveredAt = new Date();
+            order.paymentStatus = 'collected';
+        } else if (status === 'confirmed') {
+            order.confirmedAt = new Date();
+        } else if (status === 'shipped') {
+            order.shippedAt = new Date();
+        } else if (status === 'cancelled') {
             order.cancelledAt = new Date();
             for (const item of order.items) {
                 await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.quantity } });

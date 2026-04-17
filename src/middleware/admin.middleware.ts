@@ -7,20 +7,14 @@ interface AdminRequest extends Request {
     admin?: IAdmin;
 }
 
-export const authenticateAdmin = async (
-    req: AdminRequest,
-    res: Response,
-    next: NextFunction
-) => {
+export const authenticateAdmin = async (req: AdminRequest, res: Response, next: NextFunction) => {
     try {
         let token: string | undefined;
 
-        // ✅ PRIORITY 1: Authorization header
         if (req.headers.authorization?.startsWith('Bearer ')) {
             token = req.headers.authorization.replace('Bearer ', '');
         }
 
-        // ✅ PRIORITY 2: Cookie fallback
         if (!token && req.cookies.admin_token) {
             token = req.cookies.admin_token;
         }
