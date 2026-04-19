@@ -96,13 +96,5 @@ orderSchema.virtual('isPaid').get(function (this: IOrder) {
     return this.status === 'delivered';
 });
 
-// Generate order number
-orderSchema.pre<IOrder>('save', async function (next) {
-    if (!this.orderNumber) {
-        const count = await mongoose.model<IOrder>('Order').countDocuments();
-        this.orderNumber = `ORD-${String(count + 1).padStart(3, '0')}`;
-    }
-    next();
-});
 
 export default mongoose.model<IOrder>('Order', orderSchema);

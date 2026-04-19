@@ -6,12 +6,16 @@ import { ApiError } from '../utils/ApiError.js';
 import { successResponse } from '../utils/ApiResponse.js';
 import { sendMail } from '../config/email.js';
 import { orderConfirmationTemplate } from '../utils/emailTemplates.js';
+import mongoose from 'mongoose';
 
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
         const { customer, items, notes } = req.body;
 
-        const settings = await Settings.findOne();
+        const settings = await Settings.findOne().session(session);
         const deliveryCharge =
             customer.address.deliveryLocation === 'inside_dhaka'
                 ? (settings?.insideDhakaCharge ?? 70)
@@ -21,7 +25,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         const orderItems: any[] = [];
 
         for (const item of items) {
-            const product = await Product.findById(item.productId);
+            const product = await Product.findById(item.productId).session(session);
             if (!product) throw new ApiError(404, `Product not found: ${item.productId}`);
             if (product.stock < item.quantity) {
                 throw new ApiError(400, `Insufficient stock for ${product.name}`);
@@ -38,26 +42,36 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
                 subtotal: itemSubtotal,
             });
 
-            product.stock -= item.quantity;
-            await product.save();
+            // Atomic stock decrement inside transaction
+            await Product.findByIdAndUpdate(
+                item.productId,
+                { $inc: { stock: -item.quantity } },
+                { session, new: true }
+            );
         }
 
         const total = subtotal + deliveryCharge;
-        const count = await Order.countDocuments();
-        const orderNumber = `ORD-${String(count + 1).padStart(4, '0')}`;
+        const count = await Order.countDocuments().session(session);
+        const orderNumber = `ORD-${String(count + 1).padStart(5, '0')}`;
 
-        const order = await Order.create({
-            orderNumber,
-            customer: { userId: (req as any).user?._id || null, ...customer },
-            items: orderItems,
-            subtotal,
-            deliveryCharge,
-            discount: 0,
-            total,
-            customerNotes: notes,
-            statusHistory: [{ status: 'new', timestamp: new Date() }],
-        });
+        const [order] = await Order.create(
+            [{
+                orderNumber,
+                customer: { userId: (req as any).user?._id || null, ...customer },
+                items: orderItems,
+                subtotal,
+                deliveryCharge,
+                discount: 0,
+                total,
+                customerNotes: notes,
+                statusHistory: [{ status: 'new', timestamp: new Date() }],
+            }],
+            { session }
+        );
 
+        await session.commitTransaction();
+
+        // Send email outside transaction — failure here won't roll back order
         if (customer.email) {
             sendMail({
                 to: customer.email,
@@ -87,9 +101,13 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
         successResponse(res, { order }, 'Order placed successfully', 201);
     } catch (error) {
+        await session.abortTransaction();
         next(error);
+    } finally {
+        session.endSession();
     }
 };
+
 
 export const getOrderById = async (req: Request, res: Response, next: NextFunction) => {
     try {

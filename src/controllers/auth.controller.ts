@@ -72,10 +72,15 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
         const { phone } = req.body;
         if (!phone) return next(new ApiError(400, 'Phone number is required'));
 
-        const user = await User.findOne({ phone }).select('+resetOTP +resetOTPExpiry');
+        const user = await User.findOne({ phone }).select('+resetOTP +resetOTPExpiry +email');
 
+        // Always return same message to prevent phone enumeration
         if (!user) {
-            return successResponse(res, null, 'If this phone is registered, an OTP will be sent.');
+            return successResponse(res, null, 'If this phone is registered, an OTP will be sent to your email.');
+        }
+
+        if (!user.email) {
+            return next(new ApiError(400, 'No email address found for this account. Please contact support to reset your password.'));
         }
 
         const otp = crypto.randomInt(100000, 999999).toString();
@@ -85,15 +90,33 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
         user.resetOTPExpiry = expiry;
         await user.save({ validateBeforeSave: false });
 
-        if (user.email) {
-            sendMail({
-                to: user.email,
-                subject: '🔐 Your Karughor Password Reset OTP',
-                html: forgotPasswordEmailTemplate({ fullName: user.fullName, phone, otp, expiresInMinutes: 15 }),
-            }).catch(() => { });
+        // Log OTP to console (visible in Render logs) until SMS is integrated
+        console.log(`🔐 [OTP] Phone: ${phone} | OTP: ${otp} | Expires: ${expiry.toISOString()}`);
+
+        const emailSent = await sendMail({
+            to: user.email,
+            subject: '🔐 Your Karughor Password Reset OTP',
+            html: forgotPasswordEmailTemplate({
+                fullName: user.fullName,
+                phone,
+                otp,
+                expiresInMinutes: 15,
+            }),
+        });
+
+        if (!emailSent) {
+            // Clear OTP so user can retry
+            user.resetOTP = undefined;
+            user.resetOTPExpiry = undefined;
+            await user.save({ validateBeforeSave: false });
+            return next(new ApiError(500, 'Failed to send OTP email. Please try again.'));
         }
 
-        return successResponse(res, null, 'OTP sent to your phone number.');
+        // Mask email for privacy: a***@gmail.com
+        const [localPart, domain] = user.email.split('@');
+        const maskedEmail = `${localPart[0]}***@${domain}`;
+
+        return successResponse(res, { maskedEmail }, `OTP sent to ${maskedEmail}`);
     } catch (err) {
         next(err);
     }
