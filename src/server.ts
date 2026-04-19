@@ -9,6 +9,7 @@ import routes from './routes/index.js';
 import { errorHandler } from './middleware/error.middleware.js';
 import { generalLimiter } from './middleware/rateLimit.middleware.js';
 import helmet from 'helmet';
+import mongoSanitize from 'express-mongo-sanitize';
 
 const app = express();
 const PORT: number | string = process.env.PORT || 5000;
@@ -53,6 +54,7 @@ app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(mongoSanitize());
 app.use(cookieParser());
 app.use('/api', generalLimiter);
 

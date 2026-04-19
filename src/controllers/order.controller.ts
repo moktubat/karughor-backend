@@ -8,6 +8,9 @@ import { sendMail } from '../config/email.js';
 import { orderConfirmationTemplate } from '../utils/emailTemplates.js';
 import mongoose from 'mongoose';
 
+// Cancel window: 60 minutes after placing
+const CANCEL_WINDOW_MS = 60 * 60 * 1000;
+
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -42,7 +45,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
                 subtotal: itemSubtotal,
             });
 
-            // Atomic stock decrement inside transaction
             await Product.findByIdAndUpdate(
                 item.productId,
                 { $inc: { stock: -item.quantity } },
@@ -71,7 +73,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
         await session.commitTransaction();
 
-        // Send email outside transaction — failure here won't roll back order
         if (customer.email) {
             sendMail({
                 to: customer.email,
@@ -108,12 +109,14 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
     }
 };
 
-
 export const getOrderById = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const order = await Order.findById(req.params.id).populate('items.productId', 'name images');
         if (!order) throw new ApiError(404, 'Order not found');
-        if ((req as any).user && order.customer.userId?.toString() !== (req as any).user._id.toString()) {
+        if (
+            (req as any).user &&
+            order.customer.userId?.toString() !== (req as any).user._id.toString()
+        ) {
             throw new ApiError(403, 'Not authorized to view this order');
         }
         successResponse(res, { order });
@@ -122,21 +125,102 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
     }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET USER ORDERS
+// Finds by userId OR by phone — so guest-checkout orders placed with the same
+// phone number as the registered account are also visible after login.
+// ─────────────────────────────────────────────────────────────────────────────
 export const getUserOrders = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { page = 1, limit = 10 } = req.query as any;
-        const userId = (req as any).user._id;
+        const { page = 1, limit = 50 } = req.query as any;
+        const user = (req as any).user;
+        const userId = user._id;
+        const userPhone: string | undefined = user.phone;
+
+        const orConditions: any[] = [{ 'customer.userId': userId }];
+        if (userPhone) {
+            orConditions.push({ 'customer.phone': userPhone });
+        }
+
+        const query = { $or: orConditions };
+
         const [orders, total] = await Promise.all([
-            Order.find({ 'customer.userId': userId })
+            Order.find(query)
                 .sort({ createdAt: -1 })
                 .limit(Number(limit))
                 .skip((Number(page) - 1) * Number(limit)),
-            Order.countDocuments({ 'customer.userId': userId }),
+            Order.countDocuments(query),
         ]);
+
         successResponse(res, {
             orders,
-            pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
+            pagination: {
+                page: Number(page),
+                limit: Number(limit),
+                total,
+                pages: Math.ceil(total / Number(limit)),
+            },
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER CANCEL
+// ─────────────────────────────────────────────────────────────────────────────
+export const cancelOrderByUser = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = (req as any).user;
+        const order = await Order.findById(req.params.id);
+
+        if (!order) throw new ApiError(404, 'Order not found');
+
+        // Ownership check — by userId OR matching phone
+        const ownsById =
+            order.customer.userId &&
+            order.customer.userId.toString() === user._id.toString();
+        const ownsByPhone =
+            user.phone && order.customer.phone === user.phone;
+
+        if (!ownsById && !ownsByPhone) {
+            throw new ApiError(403, 'You are not authorised to cancel this order');
+        }
+
+        // Status check
+        if (!['new', 'confirmed'].includes(order.status)) {
+            throw new ApiError(
+                400,
+                `Cannot cancel an order that is already "${order.status}". Please contact support.`
+            );
+        }
+
+        // Time-window check (60 minutes)
+        // order.orderDate is defined on the schema; cast the doc to any for createdAt fallback
+        const raw = order as any;
+        const placedAt = new Date(order.orderDate || raw.createdAt).getTime();
+        if (Date.now() - placedAt > CANCEL_WINDOW_MS) {
+            throw new ApiError(
+                400,
+                'Cancellation window has expired. Orders can only be cancelled within 60 minutes of placing.'
+            );
+        }
+
+        order.status = 'cancelled';
+        order.cancelledAt = new Date();
+        if (!order.statusHistory) order.statusHistory = [];
+        order.statusHistory.push({
+            status: 'cancelled',
+            timestamp: new Date(),
+            note: 'Cancelled by customer',
+        });
+
+        for (const item of order.items) {
+            await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.quantity } });
+        }
+
+        await order.save();
+        successResponse(res, { order }, 'Order cancelled successfully');
     } catch (error) {
         next(error);
     }
@@ -163,7 +247,12 @@ export const getAllOrders = async (req: Request, res: Response, next: NextFuncti
         ]);
         successResponse(res, {
             orders,
-            pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
+            pagination: {
+                page: Number(page),
+                limit: Number(limit),
+                total,
+                pages: Math.ceil(total / Number(limit)),
+            },
         });
     } catch (error) {
         next(error);
