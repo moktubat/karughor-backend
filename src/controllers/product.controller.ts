@@ -22,7 +22,6 @@ function parseExistingImages(raw: any): string[] {
     if (Array.isArray(raw)) {
         return raw.flatMap((item: any) => {
             if (typeof item === 'string') {
-                // Could still be a JSON string itself
                 if (item.startsWith('[')) {
                     try { return JSON.parse(item) as string[]; } catch { return [item]; }
                 }
@@ -49,6 +48,7 @@ function parseExistingImages(raw: any): string[] {
     return [];
 }
 
+// ── FIX: use successResponse like every other controller ──────────────────────
 export const getAllProducts = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const page = parseInt(req.query.page as string) || 1;
@@ -79,12 +79,9 @@ export const getAllProducts = async (req: Request, res: Response, next: NextFunc
             Product.countDocuments(filter),
         ]);
 
-        res.json({
-            success: true,
-            data: {
-                products,
-                pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-            },
+        successResponse(res, {
+            products,
+            pagination: { page, limit, total, pages: Math.ceil(total / limit) },
         });
     } catch (error) {
         next(error);
@@ -144,7 +141,6 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         }
         if (req.body.stock !== undefined) updateData.stock = Number(req.body.stock);
 
-        // Remove existingImages from the update payload — it's not a model field
         delete updateData.existingImages;
 
         const updated = await Product.findByIdAndUpdate(

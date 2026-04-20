@@ -152,3 +152,79 @@ export const changeAdminPassword = async (req: Request, res: Response, next: Nex
         next(error);
     }
 };
+
+export const getAdminStats = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const [
+            revenueStats,
+            orderCounts,
+            dailySales,
+            topProducts
+        ] = await Promise.all([
+            // Revenue + delivered count
+            Order.aggregate([
+                { $match: { status: 'delivered' } },
+                { $group: { _id: null, totalRevenue: { $sum: '$total' }, delivered: { $sum: 1 } } }
+            ]),
+
+            // All status counts
+            Order.aggregate([
+                {
+                    $group: {
+                        _id: '$status',
+                        count: { $sum: 1 }
+                    }
+                }
+            ]),
+
+            // Daily sales (last 7 days)
+            Order.aggregate([
+                { $match: { status: 'delivered' } },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: '%Y-%m-%d', date: '$orderDate' } },
+                        revenue: { $sum: '$total' },
+                        orders: { $sum: 1 }
+                    }
+                },
+                { $sort: { _id: -1 } },
+                { $limit: 7 }
+            ]),
+
+            // Top 5 products
+            Order.aggregate([
+                { $match: { status: 'delivered' } },
+                { $unwind: '$items' },
+                {
+                    $group: {
+                        _id: '$items.productId',
+                        name: { $first: '$items.productName' },
+                        sold: { $sum: '$items.quantity' },
+                        revenue: { $sum: '$items.subtotal' }
+                    }
+                },
+                { $sort: { revenue: -1 } },
+                { $limit: 5 }
+            ])
+        ]);
+
+        const countsMap = orderCounts.reduce((acc: any, cur: any) => {
+            acc[cur._id] = cur.count;
+            return acc;
+        }, {});
+
+        successResponse(res, {
+            revenue: revenueStats[0] || { totalRevenue: 0, delivered: 0 },
+            counts: {
+                delivered: countsMap.delivered || 0,
+                cancelled: countsMap.cancelled || 0,
+                returned: countsMap.returned || 0,
+                pending: (countsMap.new || 0) + (countsMap.confirmed || 0) + (countsMap.shipped || 0)
+            },
+            dailySales,
+            topProducts
+        });
+    } catch (error) {
+        next(error);
+    }
+};
