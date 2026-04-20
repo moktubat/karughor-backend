@@ -9,8 +9,6 @@ import {
     updateProduct
 } from '../controllers/product.controller.js';
 import { authenticateAdmin } from '../middleware/admin.middleware.js';
-import { validate } from '../middleware/validator.middleware.js';
-import { createProductSchema } from '../middleware/product.validator.js';
 import { upload } from '../config/multer.js';
 
 const router = express.Router();
@@ -19,18 +17,18 @@ const router = express.Router();
 router.get('/', getAllProducts);
 router.get('/:id', getProductById);
 
-// Admin routes
+// Admin routes — removed validate() from create/update since images come via multipart
+// Validation of text fields is handled inside the controller
 router.post(
     '/',
     authenticateAdmin,
-    upload.array('images', 5),          // ← Cloudinary upload middleware
-    validate(createProductSchema),
+    upload.array('images', 5),
     createProduct
 );
 router.put(
     '/:id',
     authenticateAdmin,
-    upload.array('images', 5),          // ← also for edit (new images)
+    upload.array('images', 5),
     updateProduct
 );
 router.delete('/:id', authenticateAdmin, deleteProduct);

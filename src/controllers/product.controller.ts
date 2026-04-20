@@ -5,7 +5,48 @@ import { successResponse } from '../utils/ApiResponse.js';
 
 function extractUploadedUrls(files: Express.Multer.File[] | undefined): string[] {
     if (!files || files.length === 0) return [];
-    return files.map((f: any) => f.path || f.secure_url);
+    return files.map((f: any) => f.path || f.secure_url || f.location || '').filter(Boolean);
+}
+
+/**
+ * Safely flatten existingImages from FormData.
+ * FormData can send it as:
+ *   - a single string          → ["url"]
+ *   - an array of strings      → ["url1", "url2"]
+ *   - a JSON-stringified array → parse it
+ */
+function parseExistingImages(raw: any): string[] {
+    if (!raw) return [];
+
+    // Already a proper array of strings
+    if (Array.isArray(raw)) {
+        return raw.flatMap((item: any) => {
+            if (typeof item === 'string') {
+                // Could still be a JSON string itself
+                if (item.startsWith('[')) {
+                    try { return JSON.parse(item) as string[]; } catch { return [item]; }
+                }
+                return [item];
+            }
+            return [];
+        }).filter((s: string) => s && s.startsWith('http'));
+    }
+
+    // Single string value
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                return Array.isArray(parsed) ? parsed.flat(Infinity).filter((s: any) => typeof s === 'string' && s.startsWith('http')) : [];
+            } catch {
+                return trimmed.startsWith('http') ? [trimmed] : [];
+            }
+        }
+        return trimmed.startsWith('http') ? [trimmed] : [];
+    }
+
+    return [];
 }
 
 export const getAllProducts = async (req: Request, res: Response, next: NextFunction) => {
@@ -63,6 +104,7 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
 export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const uploadedImages = extractUploadedUrls(req.files as Express.Multer.File[]);
+
         if (uploadedImages.length === 0) {
             throw new ApiError(400, 'At least one product image is required');
         }
@@ -87,13 +129,10 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         if (!product) throw new ApiError(404, 'Product not found');
 
         const newImages = extractUploadedUrls(req.files as Express.Multer.File[]);
-        const existingImages: string[] = req.body.existingImages
-            ? Array.isArray(req.body.existingImages)
-                ? req.body.existingImages
-                : [req.body.existingImages]
-            : [];
+        const existingImages = parseExistingImages(req.body.existingImages);
 
         const images = [...existingImages, ...newImages];
+
         const updateData: any = {
             ...req.body,
             images: images.length > 0 ? images : product.images,
@@ -104,9 +143,15 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
             updateData.originalPrice = req.body.originalPrice ? Number(req.body.originalPrice) : undefined;
         }
         if (req.body.stock !== undefined) updateData.stock = Number(req.body.stock);
+
+        // Remove existingImages from the update payload — it's not a model field
         delete updateData.existingImages;
 
-        const updated = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
+        const updated = await Product.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            { new: true, runValidators: true }
+        );
         successResponse(res, { product: updated }, 'Product updated successfully');
     } catch (error) {
         next(error);
