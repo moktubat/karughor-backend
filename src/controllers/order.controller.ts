@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import Order from '../models/Order.model.js';
 import Product from '../models/Product.model.js';
 import Settings from '../models/Settings.model.js';
@@ -6,10 +7,23 @@ import { ApiError } from '../utils/ApiError.js';
 import { successResponse } from '../utils/ApiResponse.js';
 import { sendMail } from '../config/email.js';
 import { orderConfirmationTemplate } from '../utils/emailTemplates.js';
-import mongoose from 'mongoose';
 
 // Cancel window: 60 minutes after placing
 const CANCEL_WINDOW_MS = 60 * 60 * 1000;
+
+const Counter = mongoose.model(
+    'Counter',
+    new mongoose.Schema({ _id: String, seq: { type: Number, default: 0 } })
+);
+
+async function nextOrderNumber(session: mongoose.ClientSession): Promise<string> {
+    const counter = await Counter.findOneAndUpdate(
+        { _id: 'orderNumber' },
+        { $inc: { seq: 1 } },
+        { upsert: true, new: true, session }
+    );
+    return `ORD-${String(counter!.seq).padStart(5, '0')}`;
+}
 
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
     const session = await mongoose.startSession();
@@ -53,8 +67,8 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         }
 
         const total = subtotal + deliveryCharge;
-        const count = await Order.countDocuments().session(session);
-        const orderNumber = `ORD-${String(count + 1).padStart(5, '0')}`;
+
+        const orderNumber = await nextOrderNumber(session);
 
         const [order] = await Order.create(
             [{
@@ -125,11 +139,6 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET USER ORDERS
-// Finds by userId OR by phone — so guest-checkout orders placed with the same
-// phone number as the registered account are also visible after login.
-// ─────────────────────────────────────────────────────────────────────────────
 export const getUserOrders = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { page = 1, limit = 50 } = req.query as any;
@@ -166,9 +175,6 @@ export const getUserOrders = async (req: Request, res: Response, next: NextFunct
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// USER CANCEL
-// ─────────────────────────────────────────────────────────────────────────────
 export const cancelOrderByUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = (req as any).user;
@@ -176,7 +182,6 @@ export const cancelOrderByUser = async (req: Request, res: Response, next: NextF
 
         if (!order) throw new ApiError(404, 'Order not found');
 
-        // Ownership check — by userId OR matching phone
         const ownsById =
             order.customer.userId &&
             order.customer.userId.toString() === user._id.toString();
@@ -187,7 +192,6 @@ export const cancelOrderByUser = async (req: Request, res: Response, next: NextF
             throw new ApiError(403, 'You are not authorised to cancel this order');
         }
 
-        // Status check
         if (!['new', 'confirmed'].includes(order.status)) {
             throw new ApiError(
                 400,
@@ -195,8 +199,6 @@ export const cancelOrderByUser = async (req: Request, res: Response, next: NextF
             );
         }
 
-        // Time-window check (60 minutes)
-        // order.orderDate is defined on the schema; cast the doc to any for createdAt fallback
         const raw = order as any;
         const placedAt = new Date(order.orderDate || raw.createdAt).getTime();
         if (Date.now() - placedAt > CANCEL_WINDOW_MS) {

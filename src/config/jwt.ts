@@ -4,13 +4,11 @@ interface Payload {
     [key: string]: any;
 }
 
-// Ensure JWT_SECRET is defined
-const JWT_SECRET: Secret = process.env.JWT_SECRET || '';
-if (!JWT_SECRET) {
-    throw new Error("JWT_SECRET environment variable is not defined");
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required but not set');
 }
 
-// JWT_EXPIRE can be string (like '30d') or number (seconds)
+const JWT_SECRET: Secret = process.env.JWT_SECRET;
 const JWT_EXPIRE = (process.env.JWT_EXPIRE || '30d') as `${number}${'s' | 'm' | 'h' | 'd' | 'w' | 'y'}` | number;
 
 export const generateToken = (payload: Payload): string => {

@@ -1,9 +1,9 @@
 import rateLimit from 'express-rate-limit';
 
-// General API limit — 100 requests per 15 min per IP
+// ✅ FIXED: Bumped to 300 req/15min — previous 100 throttled legitimate users
 export const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
     message: {
