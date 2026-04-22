@@ -10,6 +10,7 @@ import { errorHandler } from './middleware/error.middleware.js';
 import { generalLimiter } from './middleware/rateLimit.middleware.js';
 import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
+import mongoose from 'mongoose';
 
 const app = express();
 const PORT: number | string = process.env.PORT || 5000;
@@ -75,6 +76,18 @@ app.use((req: Request, res: Response) => {
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT} [${process.env.NODE_ENV}]`);
 });
+
+const gracefulShutdown = async (signal: string) => {
+    server.close(async () => {
+        await mongoose.disconnect();
+        process.exit(0);
+    });
+
+    setTimeout(() => process.exit(1), 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

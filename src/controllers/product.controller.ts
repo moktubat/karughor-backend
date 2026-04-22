@@ -106,11 +106,21 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
             throw new ApiError(400, 'At least one product image is required');
         }
 
+        const price = Number(req.body.price);
+        const stock = Number(req.body.stock);
+        const originalPrice = req.body.originalPrice ? Number(req.body.originalPrice) : undefined;
+
+        if (!req.body.name?.trim()) throw new ApiError(400, 'Product name is required');
+        if (!req.body.description?.trim()) throw new ApiError(400, 'Description is required');
+        if (!req.body.category?.trim()) throw new ApiError(400, 'Category is required');
+        if (isNaN(price) || price < 0) throw new ApiError(400, 'Valid price is required');
+        if (isNaN(stock) || stock < 0) throw new ApiError(400, 'Valid stock is required');
+
         const product = await Product.create({
             ...req.body,
-            price: Number(req.body.price),
-            originalPrice: req.body.originalPrice ? Number(req.body.originalPrice) : undefined,
-            stock: Number(req.body.stock),
+            price,
+            originalPrice,
+            stock,
             images: uploadedImages,
         });
 
@@ -127,7 +137,6 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
 
         const newImages = extractUploadedUrls(req.files as Express.Multer.File[]);
         const existingImages = parseExistingImages(req.body.existingImages);
-
         const images = [...existingImages, ...newImages];
 
         const updateData: any = {
@@ -135,11 +144,19 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
             images: images.length > 0 ? images : product.images,
         };
 
-        if (req.body.price !== undefined) updateData.price = Number(req.body.price);
+        if (req.body.price !== undefined) {
+            const price = Number(req.body.price);
+            if (isNaN(price) || price < 0) throw new ApiError(400, 'Valid price is required');
+            updateData.price = price;
+        }
         if (req.body.originalPrice !== undefined) {
             updateData.originalPrice = req.body.originalPrice ? Number(req.body.originalPrice) : undefined;
         }
-        if (req.body.stock !== undefined) updateData.stock = Number(req.body.stock);
+        if (req.body.stock !== undefined) {
+            const stock = Number(req.body.stock);
+            if (isNaN(stock) || stock < 0) throw new ApiError(400, 'Valid stock is required');
+            updateData.stock = stock;
+        }
 
         delete updateData.existingImages;
 
@@ -153,6 +170,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         next(error);
     }
 };
+
 
 export const deleteProduct = async (req: Request, res: Response, next: NextFunction) => {
     try {

@@ -96,5 +96,9 @@ orderSchema.virtual('isPaid').get(function (this: IOrder) {
     return this.status === 'delivered';
 });
 
+orderSchema.index({ status: 1, orderDate: -1 });
+orderSchema.index({ 'customer.phone': 1 });
+orderSchema.index({ 'customer.userId': 1 });
+orderSchema.index({ orderNumber: 1 });
 
 export default mongoose.model<IOrder>('Order', orderSchema);
