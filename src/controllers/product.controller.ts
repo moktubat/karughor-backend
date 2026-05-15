@@ -2,19 +2,15 @@ import { Request, Response, NextFunction } from 'express';
 import Product from '../models/Product.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { successResponse } from '../utils/ApiResponse.js';
+import cloudinary from '../config/cloudinary.js';
+import Category from '../models/Category.model.js';
 
 function extractUploadedUrls(files: Express.Multer.File[] | undefined): string[] {
     if (!files || files.length === 0) return [];
     return files.map((f: any) => f.path || f.secure_url || f.location || '').filter(Boolean);
 }
 
-/**
- * Safely flatten existingImages from FormData.
- * FormData can send it as:
- *   - a single string          → ["url"]
- *   - an array of strings      → ["url1", "url2"]
- *   - a JSON-stringified array → parse it
- */
+
 function parseExistingImages(raw: any): string[] {
     if (!raw) return [];
 
@@ -48,6 +44,13 @@ function parseExistingImages(raw: any): string[] {
     return [];
 }
 
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function extractPublicId(url: string): string | null {
+    const m = url.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[^./]+)?$/);
+    return m ? m[1] : null;
+}
+
 // ── FIX: use successResponse like every other controller ──────────────────────
 export const getAllProducts = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -57,11 +60,31 @@ export const getAllProducts = async (req: Request, res: Response, next: NextFunc
         const filter: any = {};
 
         if (req.query.category) {
-            const slug = req.query.category as string;
-            const readable = slug.replace(/-/g, ' ');
-            const escSlug = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const escReadable = readable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            filter.category = { $regex: new RegExp(`^(${escSlug}|${escReadable})$`, 'i') };
+            const categoryParam = req.query.category as string;
+
+            const categoryDoc = await Category.findOne({
+                slug: categoryParam.toLowerCase(),
+            });
+
+            if (categoryDoc) {
+                const name = categoryDoc.name;
+                const variants = [...new Set([
+                    name,
+                    name.replace(/&/g, 'and'),
+                    name.replace(/\band\b/gi, '&'),
+                ])].map(escapeRegex);
+                filter.category = {
+                    $regex: new RegExp(`^(${variants.join('|')})$`, 'i'),
+                };
+            } else {
+                const readable = categoryParam.replace(/-/g, ' ');
+                filter.category = {
+                    $regex: new RegExp(
+                        `^(${escapeRegex(categoryParam)}|${escapeRegex(readable)})$`,
+                        'i'
+                    ),
+                };
+            }
         }
 
         if (req.query.search) {
@@ -139,6 +162,25 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         const existingImages = parseExistingImages(req.body.existingImages);
         const images = [...existingImages, ...newImages];
 
+        const removedImages = product.images.filter(
+            (url) => !existingImages.includes(url)
+        );
+        if (removedImages.length > 0) {
+            await Promise.allSettled(
+                removedImages.map(async (url) => {
+                    const publicId = extractPublicId(url);
+                    if (publicId) {
+                        try {
+                            await cloudinary.uploader.destroy(publicId);
+                        } catch (e) {
+                            console.warn('[Cloudinary] delete failed:', publicId, e);
+                        }
+                    }
+                })
+            );
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         const updateData: any = {
             ...req.body,
             images: images.length > 0 ? images : product.images,
@@ -150,7 +192,9 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
             updateData.price = price;
         }
         if (req.body.originalPrice !== undefined) {
-            updateData.originalPrice = req.body.originalPrice ? Number(req.body.originalPrice) : undefined;
+            updateData.originalPrice = req.body.originalPrice
+                ? Number(req.body.originalPrice)
+                : undefined;
         }
         if (req.body.stock !== undefined) {
             const stock = Number(req.body.stock);

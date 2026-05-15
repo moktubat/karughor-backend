@@ -90,7 +90,7 @@ const seedCategories = async (): Promise<void> => {
                 subCategories: [],
             },
             {
-                name: "Ladies Bags and Purses",
+                name: "Ladies' Bags and Purses",
                 slug: 'ladies-bags-purses',
                 icon: 'FaShoppingBag',
                 description: 'Handcrafted jute and fabric bags and purses.',
